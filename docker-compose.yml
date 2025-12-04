@@ -1,15 +1,41 @@
 version: '3.8'
 services:
+  cert-init:
+    image: alpine:latest
+    container_name: cert-init
+    volumes:
+      - certs:/ssl
+    command: sh -c "
+      apk add --no-cache openssl &&
+      if [ ! -f /ssl/stremio.crt ]; then 
+        echo '🔐 Generando certificati HTTPS...';
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \\
+          -keyout /ssl/stremio.key \\
+          -out /ssl/stremio.crt \\
+          -subj '/CN=localhost' \\
+          -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1' &&
+        chmod 644 /ssl/stremio.crt /ssl/stremio.key &&
+        echo '✅ Certificati generati';
+      else 
+        echo '✅ Certificati già presenti';
+      fi
+    "
+    networks:
+      - stremio-net
+
   stremio-server:
     image: stremio/server:latest
     container_name: stremio-server
     ports:
       - "11470:11470"
     volumes:
-      - ./stremio-data:/root/.stremio-server
+      - stremio-data:/root/.stremio-server
     restart: unless-stopped
     environment:
       - NO_CORS=1
+    depends_on:
+      cert-init:
+        condition: service_completed_successfully
     networks:
       - stremio-net
 
@@ -19,9 +45,7 @@ services:
     ports:
       - "12470:12470"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-      - ./init-ssl:/init-ssl:ro
+      - certs:/etc/nginx/ssl:ro
     depends_on:
       cert-init:
         condition: service_completed_successfully
@@ -29,22 +53,9 @@ services:
     networks:
       - stremio-net
 
-  cert-init:
-    image: alpine:latest
-    container_name: cert-init
-    volumes:
-      - ./ssl:/ssl
-      - ./init-ssl:/init-ssl:ro
-    command: sh -c "
-      if [ ! -f /ssl/stremio.crt ]; then 
-        echo '🔐 Generando certificati HTTPS...';
-        cd /init-ssl && sh generate-certs.sh;
-      else 
-        echo '✅ Certificati già presenti';
-      fi
-    "
-    networks:
-      - stremio-net
+volumes:
+  certs:
+  stremio-data:
 
 networks:
   stremio-net:
