@@ -1,11 +1,18 @@
-FROM alpine:3.20
+FROM stremio/server:latest
 
-RUN apk add --no-cache nginx openssl nodejs npm curl tar
+# Installa NGINX su base esistente (usa apk se disponibile, altrimenti apt)
+USER root
+RUN apk add --no-cache nginx openssl 2>/dev/null || \
+    apt-get update && apt-get install -y nginx openssl && rm -rf /var/lib/apt/lists/* || \
+    echo "No package manager found, skipping NGINX install"
 
-RUN mkdir -p /etc/nginx/ssl /root/.stremio-server /app
+# Crea SSL directory
+RUN mkdir -p /etc/nginx/ssl
 
+# Copia nginx.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Genera certificati self-signed
 RUN openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout /etc/nginx/ssl/stremio.key \
     -out /etc/nginx/ssl/stremio.crt \
@@ -13,14 +20,12 @@ RUN openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1" \
     && chmod 644 /etc/nginx/ssl/stremio.*
 
-WORKDIR /app
+# Configura NGINX per HTTPS 12470
+RUN sed -i 's|listen 80;|listen 12470 ssl http2;|' /etc/nginx/conf.d/default.conf || \
+    echo "listen 12470 ssl http2;" >> /etc/nginx/conf.d/default.conf
 
-# Scarica e unpack Stremio - sistema per scompattare senza sottocartella
-RUN curl -L https://github.com/Stremio/stremio-service/releases/download/v1.6.0/server-linux-x64.tar.gz | tar -xz --strip-components=1 \
-    && chmod +x start.sh
-
-RUN sed -i 's|listen 80;|listen 12470 ssl http2;|' /etc/nginx/conf.d/default.conf
-
+# Espone porta HTTPS
 EXPOSE 12470
 
-CMD nginx -g "daemon off;" & sleep 5 && ./start.sh
+# Avvia NGINX + Stremio originale
+CMD nginx -g "daemon off;" & /start.sh
