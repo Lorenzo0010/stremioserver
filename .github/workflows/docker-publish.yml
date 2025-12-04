@@ -26,4 +26,4 @@ jobs:
       with:
         context: .
         push: true
-        tags: tuo-username/stremio-nginx:latest
+        tags: lorezno0010/stremioserver:latest
